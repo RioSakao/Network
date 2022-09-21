@@ -27,8 +27,9 @@ int lookup_and_connect(const char *host, const char *service);
 
 int sendall(int s, char *msg, int len);
 int recvall(int s, char *buff, int *len_received);
-void TagCount(char *buff, int *h1_count);
+void TagCount(int n, char *buff, int *h1_count);
 int chunk_size;
+int h1_count = 0;
 
 int main(int kimchis, char *kimchi[]) {
   if(kimchis < 2)
@@ -43,10 +44,10 @@ int main(int kimchis, char *kimchi[]) {
   const char *port = "80";
   char *msg = "GET /~kkredo/file.html HTTP/1.0\r\n\r\n";
   //char *buff = malloc(chunk_size);
-  char buff[4485];
+  char buff[1000];
   if (buff == NULL)
     return -1;
-  int len, len_received = 0, bytes_sent , bytes_received = 0, h1_count = 0;
+  int len, len_received = 0, bytes_sent , bytes_received = 0;
 
   /* Lookup IP and connect to server */
   if ((s = lookup_and_connect(host, port)) < 0) {
@@ -66,7 +67,7 @@ int main(int kimchis, char *kimchi[]) {
       printf("We only received %d bytes because of the error!\n", len_received);
     }
   }
-  TagCount(buff, &h1_count);
+  // TagCount(buff, &h1_count);
   printf("Number of <h1> tags: %d", h1_count);
   printf("\n");
   printf("Number of bytes: %d", len_received);
@@ -97,53 +98,37 @@ int sendall(int s, char *msg, int len) {
 }
 
 int recvall(int s, char *buff, int *len_received) {
-  int n = 0, total = 0;
-  char a_buff[chunk_size];
+  int n = 0;
+  
   n = recv(s, buff, chunk_size, 0);
 
   while (n != 0 && n != -1) {
     (*len_received) += n;
-    total += n;
-    if(total < 4485)  
-      n = recv(s, &buff[total], chunk_size, 0);
-    else 
-      n = recv(s, a_buff, chunk_size, 0);
+    TagCount(n, buff, &h1_count);   
+    n = recv(s, buff, chunk_size, 0);
   }//while
   
 
   return n == -1 ? -1 : 0; // return -1 on failure, 0 on success
 }
 
-void TagCount(char *buff, int *h1_count) {
+void TagCount(int n, char *buff, int *h1_count) {
   const int h1tag_bytes = 4;
-  int buff_itr = 0;
-  int i, k = 0;
-  int cs_index = 1;
   char a_buff[4] = { 0 };
 
-  while(buff_itr < 4485 - h1tag_bytes) {
-    a_buff[0] = buff[buff_itr];
-    a_buff[1] = buff[buff_itr + 1];
-    a_buff[2] = buff[buff_itr + 2];
-    a_buff[3] = buff[buff_itr + 3];
-      for (i = k; i < chunk_size * cs_index - h1tag_bytes; i++){
-        if (strncmp(a_buff, "<h1>", h1tag_bytes) == 0) {
-          (*h1_count)++;
-        }//if  
-        /**
-        printf("%c%c%c%c", a_buff[0], a_buff[1], a_buff[2], a_buff[3]);
-        printf("\n");
-        **/
-        a_buff[0] = buff[i+1];
-        a_buff[1] = buff[i+2];
-        a_buff[2] = buff[i+3];
-        a_buff[3] = buff[i+4];
-      }//for
-      i += h1tag_bytes;
-      k = i;
-      cs_index += 1;
-      buff_itr = k;
-  }//while
+  a_buff[0] = buff[0];
+  a_buff[1] = buff[1];
+  a_buff[2] = buff[2];
+  a_buff[3] = buff[3];
+    for (int i = 0; i < n - h1tag_bytes; i++){
+      if (strncmp(a_buff, "<h1>", h1tag_bytes) == 0) {
+        (*h1_count)++;
+      }//if  
+      a_buff[0] = buff[i+1];
+      a_buff[1] = buff[i+2];
+      a_buff[2] = buff[i+3];
+      a_buff[3] = buff[i+4];
+    }//for
 }
 
 
