@@ -26,7 +26,7 @@
 #define u uint32_t
 int lookup_and_connect(const char *host, const char *service);
 void JOIN(int s);
-void PUBLISHUtil(char *request, u *Count);
+u PUBLISHUtil(char *request, u *Count);
 void PUBLISH(int s);
 void SEARCH(int s, char *filename, char *response);
 u peerID;
@@ -65,9 +65,29 @@ int main(int kimchis, char *kimchi[]) {
         if (scanf("\n%s", filename) > 0) {
           SEARCH(s, filename, response);
           printf("\nFile found at");
-          printf("\n Peer %.4s", response);
+          for(u i = 0; i < sizeof response; i++) {
+            if(i != 0 && i < 2){
+              goto PeerID;
+            } else if (i > 3 && i < 8){
+              printf("\n");
+              goto IPaddress; 
+            } else if (i > 7 && i < 10) {
+              goto PortNumber;
+            }//if
+            
+            printf("\n Peer ");
+              PeerID:
+                printf("%d", response[i]);
+              IPaddress:
+                printf("%d", response[i]);
+              PortNumber:
+                printf("%d", response[i]);
+          }
+          /**
+          printf("\n Peer %.4d", response[0]);
           printf("\n %.4d:", response[4]);
           printf("%.2d", response[8]);
+          **/
         }//if
         else 
           perror("\nSEARCH: Scanf() error");
@@ -82,53 +102,56 @@ int main(int kimchis, char *kimchi[]) {
 }
 
 void JOIN(int s) {
-  char request[5]; int bytes_sent=0; const int len = 5;
-  request[0] = 0;//Action
+  char request[5]; int bytes_sent=0; const u len = (u)5;
+  request[0] = (u)0;//Action
   u Peer_net = htonl((uint32_t)peerID);
 
   memcpy(&request[1], &Peer_net, sizeof Peer_net);
-  bytes_sent = send(s, request, len, 0);
+  bytes_sent = send(s, request, len, (u)0);
   if(bytes_sent == -1) {
     perror("\nsend() error");
   }
 }
-void PUBLISHUtil(char *request, u *Count) {
+u PUBLISHUtil(char *request, u *Count) {
   /* publish files in SharedFiles/ */
   u index = 0;
   DIR *dir;
   
   dir = opendir("SharedFiles");
-  struct dirent *ptr; char *filename;
+  struct dirent *ptr; char *filename = '\0';
   
   while((ptr = readdir(dir))) {
     filename = ptr->d_name;
+    
+    if(strncmp(filename, ".", 1) == 0) {
+      goto end;
+    } else if (strncmp(filename, "..", 2) == 0){
+        goto end; 
+    }
+
+    u file_len = strlen(filename)+1;
     (*Count)++;
-    //request[index] = filename;
-    memcpy(&request[index], &filename, sizeof filename);
-    index += sizeof(filename)+1;
-  }
+    memcpy(&request[index], filename, file_len);
+    index += file_len;//end index
+    end:
+  }//while
   closedir(dir);
+  return index;
 }
 
 void PUBLISH(int s) {
-  u Count = 0; int bytes_sent = 0; u index = 0;
+  u Count = 0; int bytes_sent = 0; u index = 0; u ret = 0;
   char request[1200];
 
-  PUBLISHUtil(request, &Count);
-  
-  for(unsigned i=1199; i!=0; i--) {
-    if(request[i] == '\n'){
-      index = 1199 - i;
-      break;
-    }//if
-  }//for
-  
+  ret = PUBLISHUtil(request, &Count);
+  index = ret;
+
   char new_request[5+index];
   u Count_net = htonl((uint32_t)Count); 
   
-  new_request[0] = 1;//Action
-  memcpy(&new_request[1], &Count_net, sizeof Count_net);
-  memcpy(&new_request[5], &request, index+1); 
+  new_request[0] = (u)1;//Action
+  memcpy(&new_request[1], &Count_net, 4);
+  memcpy(&new_request[5], &request, index); 
 
   bytes_sent = send(s, new_request, sizeof new_request, 0);
   if(bytes_sent == -1) {
@@ -138,13 +161,21 @@ void PUBLISH(int s) {
 }
 
 void SEARCH(int s, char *filename, char *response) {
-  int bytes_sent = 0, bytes_received = 0; int len = sizeof(&filename);
+  int bytes_sent = 0, bytes_received = 0; u len = 0;
+  
+  for(u i = 0; i < sizeof filename; i++) {
+     if(filename[i] == '\0'){
+       len = i + 1;
+       break;
+     }
+  }
+
   char request[1+len]; //request[0] = '2'; //Action
   
-  request[0] = 2;
+  request[0] = (u)2;
   memcpy(&request[1], &filename, len);
   
-  bytes_sent = send(s, request, len, 0);
+  bytes_sent = send(s, request, 1+len, 0);
   if(bytes_sent == -1) {
     perror("\nsend() error");
   }
