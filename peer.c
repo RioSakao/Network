@@ -23,13 +23,14 @@
  * Returns a connected socket descriptor or -1 on error. Caller is responsible
  * for closing the returned socket.
  */
-#define u uint32_t
+#define u32 uint32_t
 int lookup_and_connect(const char *host, const char *service);
 void JOIN(int s);
-u PUBLISHUtil(char *request, u *Count);
+u32 PUBLISHUtil(char *request, long *Count);
 void PUBLISH(int s);
-void SEARCH(int s, char *filename, char *response);
-u peerID;
+void SEARCH(int s, char *filename);
+void SEARCHPrint(char *response);
+long peerID;
 
 int main(int kimchis, char *kimchi[]) {
   if (kimchis < 4) {
@@ -60,34 +61,10 @@ int main(int kimchis, char *kimchi[]) {
         else 
           perror("\nMultiple JOIN requests are prohibited");
       } else if (strncmp(input, "SEARCH", 5) == 0) {
-        char filename[50], response[50];
+        char filename[50];
         printf("\nEnter a file name: ");
         if (scanf("\n%s", filename) > 0) {
-          SEARCH(s, filename, response);
-          printf("\nFile found at");
-          for(u i = 0; i < sizeof response; i++) {
-            if(i != 0 && i < 2){
-              goto PeerID;
-            } else if (i > 3 && i < 8){
-              printf("\n");
-              goto IPaddress; 
-            } else if (i > 7 && i < 10) {
-              goto PortNumber;
-            }//if
-            
-            printf("\n Peer ");
-              PeerID:
-                printf("%d", response[i]);
-              IPaddress:
-                printf("%d", response[i]);
-              PortNumber:
-                printf("%d", response[i]);
-          }
-          /**
-          printf("\n Peer %.4d", response[0]);
-          printf("\n %.4d:", response[4]);
-          printf("%.2d", response[8]);
-          **/
+          SEARCH(s, filename);
         }//if
         else 
           perror("\nSEARCH: Scanf() error");
@@ -95,26 +72,27 @@ int main(int kimchis, char *kimchi[]) {
       else if (strncmp(input, "PUBLISH", 7) == 0)
         PUBLISH(s);
       else if (strncmp(input, "EXIT", 4) == 0)
-        break;;
+        break;
     } //if
   } //while
   return 0;
 }
 
 void JOIN(int s) {
-  char request[5]; int bytes_sent=0; const u len = (u)5;
-  request[0] = (u)0;//Action
-  u Peer_net = htonl((uint32_t)peerID);
-
+  char request[5]; int bytes_sent=0; const u32 len = 5;
+  request[0] = 0;//Action
+  
+  u32 Peer_net = htonl(peerID);
   memcpy(&request[1], &Peer_net, sizeof Peer_net);
-  bytes_sent = send(s, request, len, (u)0);
+  
+  bytes_sent = send(s, request, len, 0);
   if(bytes_sent == -1) {
     perror("\nsend() error");
   }
 }
-u PUBLISHUtil(char *request, u *Count) {
+u32 PUBLISHUtil(char *request, long *Count) {
   /* publish files in SharedFiles/ */
-  u index = 0;
+  u32 index = 0;
   DIR *dir;
   
   dir = opendir("SharedFiles");
@@ -124,32 +102,34 @@ u PUBLISHUtil(char *request, u *Count) {
     filename = ptr->d_name;
     
     if(strncmp(filename, ".", 1) == 0) {
-      goto end;
+      goto cont;
     } else if (strncmp(filename, "..", 2) == 0){
-        goto end; 
+        goto cont; 
     }
 
-    u file_len = strlen(filename)+1;
+    u32 file_len = strlen(filename)+1;
     (*Count)++;
     memcpy(&request[index], filename, file_len);
     index += file_len;//end index
-    end:
+    cont:
   }//while
   closedir(dir);
   return index;
 }
 
 void PUBLISH(int s) {
-  u Count = 0; int bytes_sent = 0; u index = 0; u ret = 0;
+  long Count = 0; u32 index = 0,  ret = 0;
+  int bytes_sent = 0;
   char request[1200];
 
   ret = PUBLISHUtil(request, &Count);
   index = ret;
-
-  char new_request[5+index];
-  u Count_net = htonl((uint32_t)Count); 
   
-  new_request[0] = (u)1;//Action
+  const u32 request_len = 5 + index;
+  char new_request[request_len];
+  u32 Count_net = htonl(Count); 
+  
+  new_request[0] = 1;//Action
   memcpy(&new_request[1], &Count_net, 4);
   memcpy(&new_request[5], &request, index); 
 
@@ -159,33 +139,54 @@ void PUBLISH(int s) {
   }
     
 }
+void SEARCHPrint(char *response) {
+  long peer,ip;
+  short port;
 
-void SEARCH(int s, char *filename, char *response) {
-  int bytes_sent = 0, bytes_received = 0; u len = 0;
+  memcpy(&peer, response, sizeof(uint32_t));
+  memcpy(&ip, response+sizeof(uint32_t), sizeof(uint32_t));
+  memcpy(&port, response+sizeof(uint32_t)+sizeof(uint32_t), sizeof(uint16_t));
   
-  for(u i = 0; i < sizeof filename; i++) {
-     if(filename[i] == '\0'){
-       len = i + 1;
-       break;
-     }
-  }
+  u32 NETpeer_id = ntohl(peer);
+  uint16_t NETport_number = ntohs(port);
+  
+  struct in_addr addr;
+  addr.s_addr = ip;
+  char *dot_ip = inet_ntoa(addr);
 
-  char request[1+len]; //request[0] = '2'; //Action
+  if(NETpeer_id == 0){
+    printf("\nFile not indexed by registry");
+  }else{
+    printf("\nFile found at");
+    printf("\n Peer %u", NETpeer_id);
+    printf("\n %s:", dot_ip);
+    printf("%d", NETport_number);
+  }//else
+
+}
+
+void SEARCH(int s, char *filename) {
+  int bytes_sent = 0, bytes_received = 0; u32 file_len = 0;
+  file_len = strlen(filename)+1; 
+  const u32 request_len = 1 + file_len;
+  char request[request_len];
+  char response[10];
   
-  request[0] = (u)2;
-  memcpy(&request[1], &filename, len);
+  request[0] = 2;
+  memcpy(&request[1], filename, file_len);
   
-  bytes_sent = send(s, request, 1+len, 0);
+  bytes_sent = send(s, request, request_len, 0);
   if(bytes_sent == -1) {
     perror("\nsend() error");
-  }
+  }//VERIFIED
   
-  bytes_received = recv(s, &response, 50, 0);
+  bytes_received = recv(s, response, sizeof(long)+sizeof(long)+sizeof(short), 0);
   if(bytes_received == -1) {
     perror("\nrecv() error");
   }
-}
 
+  SEARCHPrint(response);
+}
 int lookup_and_connect(const char *host, const char *service) {
   struct addrinfo hints;
   struct addrinfo *rp, *result;
